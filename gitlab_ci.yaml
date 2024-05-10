@@ -1,0 +1,66 @@
+default:
+  interruptible: true
+
+variables:
+  ANSIBLE_FORCE_COLOR: 'true'
+
+stages:
+  - cluster
+
+.cluster_template:
+  stage: cluster
+  image: ${image-repo}/kubespray:2.24.1
+  before_script:
+    - cp -r ./inventory/k8s-cluster /kubespray/inventory/
+    - eval $(ssh-agent) && cat "${your-ssh-key}" | ssh-add -
+    - install -m 600 $GRyour-known-hosts /etc/ssh/ssh_known_hosts
+    - cd /kubespray
+    - ansible-playbook -i ./inventory/k8s-cluster/${INV_ENV}.yaml playbooks/facts.yml -b
+  script:
+    - ansible-playbook -i ./inventory/k8s-cluster/${INV_ENV}.yaml ${ACTION_PLAYBOOK}.yml ${NODE_NAME} -b
+
+install_cluster:
+  extends: .cluster_template
+  variables:
+    ACTION_PLAYBOOK: cluster
+  when: manual
+  after_script:
+    - cp -r /kubespray/inventory/k8s-cluster/artifacts /builds/devops/kubespray/inventory/k8s-cluster/
+    - cp -r /kubespray/inventory/k8s-cluster/credentials /builds/devops/kubespray/inventory/k8s-cluster/
+  rules:
+    - if: "$INSTALL == 'true'"
+  artifacts:
+    untracked: true
+    expire_in: "1 days"
+
+upgrade_cluster:
+  extends: .cluster_template
+  variables:
+    ACTION_PLAYBOOK: upgrade-cluster
+  when: manual
+  after_script:
+    - cp -r /kubespray/inventory/k8s-cluster/artifacts /builds/devops/kubespray/inventory/k8s-cluster/
+    - cp -r /kubespray/inventory/k8s-cluster/credentials /builds/devops/kubespray/inventory/k8s-cluster/
+  rules:
+    - if: "$UPGRADE == 'true'"
+  artifacts:
+    untracked: true
+    expire_in: "1 days"
+
+remove_node:
+  extends: .cluster_template
+  variables:
+    ACTION_PLAYBOOK: remove-node
+    NODE_NAME: $NODE_NAME
+  when: manual
+  rules:
+    - if: "$REMOVE_NODE == 'true'"
+
+add_node:
+  extends: .cluster_template
+  variables:
+    ACTION_PLAYBOOK: scale
+    NODE_NAME: $NODE_NAME
+  when: manual
+  rules:
+    - if: "$ADD_NODE == 'true'"
